@@ -10,16 +10,18 @@ import {
   XCircle,
   MessageCircle,
   FileText,
-  Download,
+  Lock,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
 import { useProjects } from '../context/ProjectContext';
+import { useAuth } from '../context/AuthContext';
 
 const ProjectDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { projects, getDocumentsByReviewStage } = useProjects();
+  const { isAuthenticated } = useAuth();
   const project = projects.find(p => p.id === id);
   const [expandedReviewStage, setExpandedReviewStage] = useState<string | null>(null);
   
@@ -98,6 +100,23 @@ const ProjectDetailPage = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  // Get document counts for preview (only show counts, not actual files)
+  const getDocumentPreview = (stage: string) => {
+    const documents = getDocumentsByReviewStage(project.id, stage);
+    const categories = {
+      presentation: documents.filter(doc => doc.document_category === 'presentation').length,
+      document: documents.filter(doc => doc.document_category === 'document').length,
+      report: documents.filter(doc => doc.document_category === 'report').length,
+      other: documents.filter(doc => doc.document_category === 'other').length
+    };
+    
+    return {
+      total: documents.length,
+      categories,
+      totalSize: documents.reduce((sum, doc) => sum + doc.size, 0)
+    };
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 pt-24 pb-16">
       <div className="container mx-auto px-4 md:px-6">
@@ -168,12 +187,22 @@ const ProjectDetailPage = () => {
                   )}
                 </div>
 
-                {/* Project Documents Section */}
+                {/* Project Documents Section - Preview Only */}
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-200 mb-4">Project Documents</h2>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+                    <div className="flex items-start">
+                      <Lock className="h-5 w-5 text-blue-600 dark:text-blue-400 mr-2 mt-0.5" />
+                      <div className="text-sm text-blue-800 dark:text-blue-300">
+                        <p className="font-medium mb-1">Documents Available After Purchase</p>
+                        <p>Complete project documentation will be delivered via email upon purchase, organized by review stages.</p>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="space-y-4">
                     {reviewStages.map((stage) => {
-                      const documents = getDocumentsByReviewStage(project.id, stage.value);
+                      const preview = getDocumentPreview(stage.value);
                       const isExpanded = expandedReviewStage === stage.value;
                       
                       return (
@@ -192,7 +221,7 @@ const ProjectDetailPage = () => {
                             </div>
                             <div className="flex items-center space-x-2">
                               <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full text-xs">
-                                {documents.length} docs
+                                {preview.total} docs
                               </span>
                               {isExpanded ? (
                                 <ChevronUp className="h-5 w-5 text-slate-400" />
@@ -204,48 +233,64 @@ const ProjectDetailPage = () => {
                           
                           {isExpanded && (
                             <div className="px-4 pb-4 border-t border-slate-200 dark:border-slate-700">
-                              {documents.length === 0 ? (
+                              {preview.total === 0 ? (
                                 <div className="text-center py-6 text-slate-500 dark:text-slate-400">
                                   <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
                                   <p className="text-sm">No documents available for this review stage</p>
                                 </div>
                               ) : (
-                                <div className="space-y-2 mt-3">
-                                  {documents.map((doc) => (
-                                    <div
-                                      key={doc.id}
-                                      className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-lg"
-                                    >
-                                      <div className="flex items-center space-x-3">
-                                        <FileText className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                                        <div>
-                                          <h4 className="font-medium text-slate-900 dark:text-slate-200">
-                                            {doc.name}
-                                          </h4>
-                                          <div className="flex items-center space-x-2 text-sm text-slate-500 dark:text-slate-400">
-                                            <span>{formatFileSize(doc.size)}</span>
-                                            <span>•</span>
-                                            <span className="capitalize">{doc.document_category}</span>
-                                          </div>
-                                          {doc.description && (
-                                            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                                              {doc.description}
-                                            </p>
-                                          )}
-                                        </div>
+                                <div className="space-y-3 mt-3">
+                                  <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-3">
+                                    <h4 className="font-medium text-slate-900 dark:text-slate-200 mb-2">
+                                      Document Summary
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">Total Documents:</span>
+                                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-200">{preview.total}</span>
                                       </div>
-                                      
-                                      <a
-                                        href={doc.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-lg transition-colors"
-                                        title="Download document"
-                                      >
-                                        <Download className="h-4 w-4" />
-                                      </a>
+                                      <div>
+                                        <span className="text-slate-600 dark:text-slate-400">Total Size:</span>
+                                        <span className="ml-2 font-medium text-slate-900 dark:text-slate-200">{formatFileSize(preview.totalSize)}</span>
+                                      </div>
                                     </div>
-                                  ))}
+                                    
+                                    <div className="mt-3">
+                                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Document Types:</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {preview.categories.presentation > 0 && (
+                                          <span className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 px-2 py-1 rounded text-xs">
+                                            {preview.categories.presentation} Presentation{preview.categories.presentation > 1 ? 's' : ''}
+                                          </span>
+                                        )}
+                                        {preview.categories.document > 0 && (
+                                          <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded text-xs">
+                                            {preview.categories.document} Document{preview.categories.document > 1 ? 's' : ''}
+                                          </span>
+                                        )}
+                                        {preview.categories.report > 0 && (
+                                          <span className="bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded text-xs">
+                                            {preview.categories.report} Report{preview.categories.report > 1 ? 's' : ''}
+                                          </span>
+                                        )}
+                                        {preview.categories.other > 0 && (
+                                          <span className="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 px-2 py-1 rounded text-xs">
+                                            {preview.categories.other} Other
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                                    <div className="flex items-start">
+                                      <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400 mr-2 mt-0.5" />
+                                      <div className="text-sm text-amber-800 dark:text-amber-300">
+                                        <p className="font-medium">Purchase to Access</p>
+                                        <p className="text-xs mt-1">Documents will be delivered via email with download links</p>
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -291,6 +336,7 @@ const ProjectDetailPage = () => {
                           <li>Installation guide</li>
                           <li>Support via email</li>
                           <li>Project review documents</li>
+                          <li>Lifetime access to downloads</li>
                         </ul>
                       </div>
                     </div>

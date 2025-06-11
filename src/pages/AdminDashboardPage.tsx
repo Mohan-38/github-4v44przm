@@ -22,6 +22,13 @@ const AdminDashboardPage = () => {
   const pendingOrders = orders.filter(order => order.status === 'pending').length;
   const newInquiries = inquiries.length;
   
+  // Format revenue in Indian Rupees
+  const formattedRevenue = new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(totalRevenue);
+  
   // Generate dummy chart data
   const monthlyRevenue = Array.from({ length: 12 }, () => Math.floor(Math.random() * 2000));
   const maxRevenue = Math.max(...monthlyRevenue);
@@ -86,7 +93,7 @@ const AdminDashboardPage = () => {
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">Total Revenue</p>
-                <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-200">${totalRevenue.toFixed(2)}</h3>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-200">{formattedRevenue}</h3>
               </div>
               <div className="p-2 bg-green-50 dark:bg-green-900 rounded-lg">
                 <DollarSign className="h-6 w-6 text-green-600 dark:text-green-400" />
