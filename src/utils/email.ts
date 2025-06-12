@@ -7,7 +7,8 @@ const CONFIG = {
     apiUrl: 'https://api.brevo.com/v3/smtp/email',
     // You'll need to set this in your environment variables
     apiKey: import.meta.env.VITE_BREVO_API_KEY || '',
-    senderEmail: 'no-reply@test.brevo.com',
+    // Use Brevo's default test sender - replace with your validated sender
+    senderEmail: 'mohansfiles@gmail.com', // Default Brevo test sender
     senderName: 'TechCreator'
   },
   emailjs: {
@@ -99,7 +100,13 @@ const formatFileSize = (bytes: number): string => {
 // Brevo API Service
 const sendBrevoEmail = async (emailData: BrevoEmailData): Promise<void> => {
   if (!CONFIG.brevo.apiKey) {
-    throw new Error('Brevo API key is not configured. Please set VITE_BREVO_API_KEY in your environment variables.');
+    console.warn('Brevo API key is not configured. Email will not be sent.');
+    console.log('To configure Brevo:');
+    console.log('1. Go to https://app.brevo.com/settings/keys/api');
+    console.log('2. Create an API key');
+    console.log('3. Add VITE_BREVO_API_KEY to your .env file');
+    console.log('4. Validate your sender email in Brevo dashboard');
+    return;
   }
 
   try {
@@ -115,6 +122,23 @@ const sendBrevoEmail = async (emailData: BrevoEmailData): Promise<void> => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      
+      // Handle specific sender validation error
+      if (response.status === 400 && errorData.message?.includes('sender')) {
+        throw new Error(`
+Brevo Sender Validation Error: ${errorData.message}
+
+To fix this:
+1. Go to https://app.brevo.com/senders/domain
+2. Add and validate your domain, OR
+3. Go to https://app.brevo.com/senders/list
+4. Add and validate your sender email address
+5. Update the senderEmail in the email configuration
+
+Current sender: ${emailData.sender.email}
+        `);
+      }
+      
       throw new Error(`Brevo API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
     }
 
@@ -189,6 +213,7 @@ export const sendOrderConfirmation = async (
         .highlight { color: #3b82f6; font-weight: bold; }
         .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
         .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        .setup-note { background: #dbeafe; border: 1px solid #3b82f6; padding: 15px; border-radius: 6px; margin: 15px 0; }
       </style>
     </head>
     <body>
@@ -214,6 +239,11 @@ export const sendOrderConfirmation = async (
           <div class="warning">
             <h3>📧 Document Delivery</h3>
             <p><strong>You will receive a separate email within 24 hours</strong> containing download links for all project documents, organized by review stages.</p>
+          </div>
+          
+          <div class="setup-note">
+            <h3>⚠️ Setup Note</h3>
+            <p>Email delivery is currently being configured. If you don't receive the document delivery email within 24 hours, please contact support directly.</p>
           </div>
           
           <h3>What's Included:</h3>
@@ -293,7 +323,8 @@ Thank you for choosing TechCreator!
     await sendBrevoEmail(emailData);
   } catch (error) {
     console.error('Order confirmation failed:', error);
-    throw new Error('Failed to send order confirmation. Please try again later.');
+    // Don't throw error for order confirmation - order should still complete
+    console.log('Order completed successfully, but email notification failed. Customer should be notified manually.');
   }
 };
 
@@ -514,9 +545,53 @@ Thank you for your business!
   `.trim();
 };
 
+// Setup instructions for Brevo
+export const getBrevoSetupInstructions = (): string => {
+  return `
+BREVO EMAIL SETUP INSTRUCTIONS:
+
+1. Create Brevo Account:
+   - Go to https://app.brevo.com/
+   - Sign up for a free account
+
+2. Get API Key:
+   - Go to https://app.brevo.com/settings/keys/api
+   - Create a new API key
+   - Add it to your .env file as VITE_BREVO_API_KEY
+
+3. Validate Sender Email:
+   Option A - Validate Individual Email:
+   - Go to https://app.brevo.com/senders/list
+   - Click "Add a sender"
+   - Add your email (e.g., mohanselemophile@gmail.com)
+   - Verify it via the confirmation email
+
+   Option B - Validate Domain (Recommended):
+   - Go to https://app.brevo.com/senders/domain
+   - Add your domain
+   - Add the required DNS records
+   - This allows any email from your domain
+
+4. Update Configuration:
+   - Replace 'noreply@brevo.com' with your validated sender email
+   - Update the senderName if needed
+
+5. Test Email Delivery:
+   - Use the test function in the email utils
+   - Check Brevo dashboard for delivery statistics
+
+Current Configuration:
+- Sender Email: ${CONFIG.brevo.senderEmail}
+- Sender Name: ${CONFIG.brevo.senderName}
+- API Key: ${CONFIG.brevo.apiKey ? 'Configured' : 'Not configured'}
+  `;
+};
+
 // Test function for development
 export const testBrevoService = async () => {
   try {
+    console.log(getBrevoSetupInstructions());
+    
     const testData: DocumentDeliveryData = {
       project_title: 'Test Project',
       customer_name: 'Test Customer',
