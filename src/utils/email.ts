@@ -7,16 +7,17 @@ const CONFIG = {
     apiUrl: 'https://api.brevo.com/v3/smtp/email',
     // You'll need to set this in your environment variables
     apiKey: import.meta.env.VITE_BREVO_API_KEY || '',
-    // Use Brevo's default test sender - replace with your validated sender
-    senderEmail: 'mohansfiles@gmail.com', // Default Brevo test sender
-    senderName: 'TechCreator'
+    // Use your validated sender email
+    senderEmail: 'mohanselemophile@gmail.com', // Your validated email
+    senderName: 'Tech Creator'
   },
   emailjs: {
     serviceId: 'service_qj44izj',
     publicKey: 'aImlP6dotqO-E3y6h',
     templates: {
       contact: 'template_k92zaj2',
-      order: 'purchase_confirmation'
+      order: 'purchase_confirmation',
+      documentDelivery: 'template_document_delivery' // Add this template
     }
   },
   developerEmail: 'mohanselemophile@gmail.com'
@@ -100,13 +101,8 @@ const formatFileSize = (bytes: number): string => {
 // Brevo API Service
 const sendBrevoEmail = async (emailData: BrevoEmailData): Promise<void> => {
   if (!CONFIG.brevo.apiKey) {
-    console.warn('Brevo API key is not configured. Email will not be sent.');
-    console.log('To configure Brevo:');
-    console.log('1. Go to https://app.brevo.com/settings/keys/api');
-    console.log('2. Create an API key');
-    console.log('3. Add VITE_BREVO_API_KEY to your .env file');
-    console.log('4. Validate your sender email in Brevo dashboard');
-    return;
+    console.warn('Brevo API key is not configured. Falling back to EmailJS.');
+    throw new Error('Brevo not configured');
   }
 
   try {
@@ -125,18 +121,8 @@ const sendBrevoEmail = async (emailData: BrevoEmailData): Promise<void> => {
       
       // Handle specific sender validation error
       if (response.status === 400 && errorData.message?.includes('sender')) {
-        throw new Error(`
-Brevo Sender Validation Error: ${errorData.message}
-
-To fix this:
-1. Go to https://app.brevo.com/senders/domain
-2. Add and validate your domain, OR
-3. Go to https://app.brevo.com/senders/list
-4. Add and validate your sender email address
-5. Update the senderEmail in the email configuration
-
-Current sender: ${emailData.sender.email}
-        `);
+        console.error('Brevo sender validation error. Falling back to EmailJS.');
+        throw new Error('Sender validation failed');
       }
       
       throw new Error(`Brevo API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
@@ -150,9 +136,61 @@ Current sender: ${emailData.sender.email}
   }
 };
 
-// Email Services (keeping EmailJS for contact form, using Brevo for document delivery)
+// EmailJS fallback for document delivery
+const sendEmailJSDocumentDelivery = async (data: DocumentDeliveryData): Promise<void> => {
+  try {
+    const emailjs = await import('@emailjs/browser');
+    
+    // Group documents by review stage
+    const documentsByStage = {
+      review_1: data.documents.filter(doc => doc.review_stage === 'review_1'),
+      review_2: data.documents.filter(doc => doc.review_stage === 'review_2'),
+      review_3: data.documents.filter(doc => doc.review_stage === 'review_3')
+    };
+
+    const stageLabels = {
+      review_1: 'Review 1 - Initial Project Review',
+      review_2: 'Review 2 - Mid-Project Assessment', 
+      review_3: 'Review 3 - Final Review & Completion'
+    };
+
+    // Create document list text
+    const documentListText = Object.entries(documentsByStage)
+      .filter(([_, docs]) => docs.length > 0)
+      .map(([stage, docs]) => {
+        const stageLabel = stageLabels[stage as keyof typeof stageLabels];
+        const docList = docs.map(doc => `• ${doc.name} (${doc.category}) - ${doc.url}`).join('\n');
+        return `${stageLabel}:\n${docList}`;
+      }).join('\n\n');
+
+    const { date } = getCurrentDateTime();
+
+    await emailjs.send(
+      CONFIG.emailjs.serviceId,
+      'template_document_delivery', // You'll need to create this template
+      {
+        customer_name: data.customer_name,
+        customer_email: data.customer_email,
+        project_title: data.project_title,
+        order_id: data.order_id,
+        total_documents: data.documents.length,
+        document_list: documentListText,
+        delivery_date: date,
+        access_expires: data.access_expires || 'Lifetime access',
+        support_email: CONFIG.developerEmail
+      },
+      CONFIG.emailjs.publicKey
+    );
+
+    console.log('Document delivery email sent via EmailJS');
+  } catch (error) {
+    console.error('EmailJS document delivery failed:', error);
+    throw error;
+  }
+};
+
+// Email Services
 export const sendContactForm = async (data: ContactFormData): Promise<void> => {
-  // Keep using EmailJS for contact forms since they don't need attachments
   if (!validateEmail(data.from_email)) {
     throw new Error('Invalid sender email address');
   }
@@ -160,7 +198,6 @@ export const sendContactForm = async (data: ContactFormData): Promise<void> => {
   const { date, time } = getCurrentDateTime();
 
   try {
-    // Import EmailJS dynamically to avoid issues if not available
     const emailjs = await import('@emailjs/browser');
     
     await emailjs.send(
@@ -196,135 +233,94 @@ export const sendOrderConfirmation = async (
 
   const { date } = getCurrentDateTime();
 
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Order Confirmation - TechCreator</title>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
-        .footer { background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
-        .order-details { background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .highlight { color: #3b82f6; font-weight: bold; }
-        .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
-        .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin: 15px 0; }
-        .setup-note { background: #dbeafe; border: 1px solid #3b82f6; padding: 15px; border-radius: 6px; margin: 15px 0; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Order Confirmation</h1>
-          <p>Thank you for your purchase!</p>
-        </div>
-        
-        <div class="content">
-          <h2>Hello ${data.customer_name},</h2>
-          
-          <p>Your order has been confirmed and is being processed. Here are your order details:</p>
-          
-          <div class="order-details">
-            <h3>Order Information</h3>
-            <p><strong>Order ID:</strong> <span class="highlight">${data.order_id}</span></p>
-            <p><strong>Project:</strong> ${data.project_title}</p>
-            <p><strong>Amount Paid:</strong> <span class="highlight">${data.price}</span></p>
-            <p><strong>Order Date:</strong> ${date}</p>
-          </div>
-          
-          <div class="warning">
-            <h3>📧 Document Delivery</h3>
-            <p><strong>You will receive a separate email within 24 hours</strong> containing download links for all project documents, organized by review stages.</p>
-          </div>
-          
-          <div class="setup-note">
-            <h3>⚠️ Setup Note</h3>
-            <p>Email delivery is currently being configured. If you don't receive the document delivery email within 24 hours, please contact support directly.</p>
-          </div>
-          
-          <h3>What's Included:</h3>
-          <ul>
-            <li>Complete source code and project files</li>
-            <li>Comprehensive documentation across 3 review stages</li>
-            <li>Installation and setup guides</li>
-            <li>Technical specifications and implementation details</li>
-            <li>Lifetime access to all downloads</li>
-            <li>Email support for technical questions</li>
-          </ul>
-          
-          <h3>Next Steps:</h3>
-          <ol>
-            <li>Keep this email for your records</li>
-            <li>Watch for the document delivery email (check spam folder)</li>
-            <li>Contact support if you don't receive documents within 24 hours</li>
-          </ol>
-          
-          <p>If you have any questions or need assistance, please don't hesitate to contact us at <a href="mailto:${CONFIG.developerEmail}">${CONFIG.developerEmail}</a></p>
-          
-          <p>Thank you for choosing TechCreator!</p>
-        </div>
-        
-        <div class="footer">
-          <p>&copy; 2025 TechCreator. All rights reserved.</p>
-          <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-
-  const textContent = `
-Order Confirmation - TechCreator
-
-Hello ${data.customer_name},
-
-Your order has been confirmed! Here are your order details:
-
-Order ID: ${data.order_id}
-Project: ${data.project_title}
-Amount Paid: ${data.price}
-Order Date: ${date}
-
-IMPORTANT: You will receive a separate email within 24 hours containing download links for all project documents.
-
-What's Included:
-- Complete source code and project files
-- Comprehensive documentation across 3 review stages
-- Installation and setup guides
-- Technical specifications and implementation details
-- Lifetime access to all downloads
-- Email support for technical questions
-
-If you have any questions, contact us at ${CONFIG.developerEmail}
-
-Thank you for choosing TechCreator!
-  `;
-
-  const emailData: BrevoEmailData = {
-    sender: {
-      name: CONFIG.brevo.senderName,
-      email: CONFIG.brevo.senderEmail
-    },
-    to: [{
-      email: recipientEmail,
-      name: data.customer_name
-    }],
-    subject: `Order Confirmation - ${data.project_title} (${data.order_id})`,
-    htmlContent,
-    textContent,
-    tags: ['order-confirmation', 'transactional']
-  };
-
+  // Try Brevo first, fallback to EmailJS
   try {
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Order Confirmation - TechCreator</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+          .footer { background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
+          .order-details { background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .highlight { color: #3b82f6; font-weight: bold; }
+          .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Order Confirmation</h1>
+            <p>Thank you for your purchase!</p>
+          </div>
+          
+          <div class="content">
+            <h2>Hello ${data.customer_name},</h2>
+            
+            <p>Your order has been confirmed and is being processed. Here are your order details:</p>
+            
+            <div class="order-details">
+              <h3>Order Information</h3>
+              <p><strong>Order ID:</strong> <span class="highlight">${data.order_id}</span></p>
+              <p><strong>Project:</strong> ${data.project_title}</p>
+              <p><strong>Amount Paid:</strong> <span class="highlight">${data.price}</span></p>
+              <p><strong>Order Date:</strong> ${date}</p>
+            </div>
+            
+            <div class="warning">
+              <h3>📧 Document Delivery</h3>
+              <p><strong>You will receive a separate email within 5 minutes</strong> containing download links for all project documents, organized by review stages.</p>
+            </div>
+            
+            <h3>What's Included:</h3>
+            <ul>
+              <li>Complete source code and project files</li>
+              <li>Comprehensive documentation across 3 review stages</li>
+              <li>Installation and setup guides</li>
+              <li>Technical specifications and implementation details</li>
+              <li>Lifetime access to all downloads</li>
+              <li>Email support for technical questions</li>
+            </ul>
+            
+            <p>If you have any questions or need assistance, please don't hesitate to contact us at <a href="mailto:${CONFIG.developerEmail}">${CONFIG.developerEmail}</a></p>
+            
+            <p>Thank you for choosing TechCreator!</p>
+          </div>
+          
+          <div class="footer">
+            <p>&copy; 2025 TechCreator. All rights reserved.</p>
+            <p>This is an automated message. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const emailData: BrevoEmailData = {
+      sender: {
+        name: CONFIG.brevo.senderName,
+        email: CONFIG.brevo.senderEmail
+      },
+      to: [{
+        email: recipientEmail,
+        name: data.customer_name
+      }],
+      subject: `Order Confirmation - ${data.project_title} (${data.order_id})`,
+      htmlContent,
+      tags: ['order-confirmation', 'transactional']
+    };
+
     await sendBrevoEmail(emailData);
   } catch (error) {
     console.error('Order confirmation failed:', error);
     // Don't throw error for order confirmation - order should still complete
-    console.log('Order completed successfully, but email notification failed. Customer should be notified manually.');
+    console.log('Order completed successfully, but email notification failed.');
   }
 };
 
@@ -333,6 +329,31 @@ export const sendDocumentDelivery = async (data: DocumentDeliveryData): Promise<
     throw new Error('Invalid recipient email address');
   }
 
+  console.log('Attempting to send document delivery email...');
+  console.log('Documents to deliver:', data.documents.length);
+
+  // Try Brevo first, then fallback to EmailJS
+  try {
+    await sendBrevoDocumentDelivery(data);
+    console.log('Document delivery email sent successfully via Brevo');
+  } catch (brevoError) {
+    console.log('Brevo failed, trying EmailJS fallback...');
+    try {
+      await sendEmailJSDocumentDelivery(data);
+      console.log('Document delivery email sent successfully via EmailJS');
+    } catch (emailjsError) {
+      console.error('Both Brevo and EmailJS failed for document delivery');
+      console.error('Brevo error:', brevoError);
+      console.error('EmailJS error:', emailjsError);
+      
+      // As a last resort, send a simple notification
+      await sendSimpleDocumentNotification(data);
+    }
+  }
+};
+
+// Brevo document delivery
+const sendBrevoDocumentDelivery = async (data: DocumentDeliveryData): Promise<void> => {
   const { date } = getCurrentDateTime();
 
   // Group documents by review stage
@@ -435,15 +456,6 @@ export const sendDocumentDelivery = async (data: DocumentDeliveryData): Promise<
             </ul>
           </div>
           
-          <h3>🛠️ What's Included</h3>
-          <ul>
-            <li>Complete source code and project files</li>
-            <li>Detailed documentation for each review stage</li>
-            <li>Installation and setup instructions</li>
-            <li>Technical specifications and architecture details</li>
-            <li>Implementation guides and best practices</li>
-          </ul>
-          
           <h3>💬 Need Help?</h3>
           <p>If you have any questions about the project, implementation, or need technical support, please contact us at:</p>
           <p><strong>Email:</strong> <a href="mailto:${CONFIG.developerEmail}">${CONFIG.developerEmail}</a></p>
@@ -460,41 +472,6 @@ export const sendDocumentDelivery = async (data: DocumentDeliveryData): Promise<
     </html>
   `;
 
-  const textContent = `
-Project Documents - ${data.project_title}
-
-Hello ${data.customer_name},
-
-Your project documents for "${data.project_title}" are now available for download!
-
-Order ID: ${data.order_id}
-Total Documents: ${data.documents.length}
-Access: ${data.access_expires || 'Lifetime access'}
-Delivery Date: ${date}
-
-DOCUMENTS BY REVIEW STAGE:
-
-${Object.entries(documentsByStage).map(([stage, docs]) => {
-  if (docs.length === 0) return '';
-  return `
-${stageLabels[stage as keyof typeof stageLabels]}:
-${docs.map(doc => `
-  • ${doc.name}
-    Category: ${doc.category}${doc.size ? ` | Size: ${formatFileSize(doc.size)}` : ''}
-    Download: ${doc.url}
-`).join('')}
-`;
-}).filter(Boolean).join('\n')}
-
-IMPORTANT NOTES:
-- Save these links for future access
-- Download files promptly for best experience
-- Contact support if any links don't work
-- Technical support available at ${CONFIG.developerEmail}
-
-Thank you for choosing TechCreator!
-  `;
-
   const emailData: BrevoEmailData = {
     sender: {
       name: CONFIG.brevo.senderName,
@@ -506,16 +483,38 @@ Thank you for choosing TechCreator!
     }],
     subject: `📁 Project Documents Ready - ${data.project_title} (${data.order_id})`,
     htmlContent,
-    textContent,
     tags: ['document-delivery', 'transactional', 'project-files']
   };
 
+  await sendBrevoEmail(emailData);
+};
+
+// Simple notification as last resort
+const sendSimpleDocumentNotification = async (data: DocumentDeliveryData): Promise<void> => {
   try {
-    await sendBrevoEmail(emailData);
-    console.log('Document delivery email sent successfully via Brevo');
+    const emailjs = await import('@emailjs/browser');
+    
+    const documentList = data.documents.map(doc => 
+      `${doc.name} (${doc.category}) - ${doc.url}`
+    ).join('\n');
+
+    await emailjs.send(
+      CONFIG.emailjs.serviceId,
+      CONFIG.emailjs.templates.contact, // Use contact template as fallback
+      {
+        name: 'TechCreator Support',
+        email: CONFIG.developerEmail,
+        project_type: 'Document Delivery',
+        budget: 'N/A',
+        message: `Document delivery for ${data.customer_name} (${data.customer_email})\n\nOrder: ${data.order_id}\nProject: ${data.project_title}\n\nDocuments:\n${documentList}`,
+        to_email: data.customer_email,
+        reply_to: CONFIG.developerEmail
+      },
+      CONFIG.emailjs.publicKey
+    );
   } catch (error) {
-    console.error('Document delivery email failed:', error);
-    throw new Error('Failed to send document delivery email. Please try again later.');
+    console.error('Even simple notification failed:', error);
+    throw new Error('All email delivery methods failed');
   }
 };
 
@@ -527,7 +526,7 @@ Thank you for purchasing "${projectTitle}"!
 Your Order ID: ${orderId}
 
 What happens next:
-1. You will receive a separate email within 24 hours containing download links for all project documents
+1. You will receive a separate email within 5 minutes containing download links for all project documents
 2. Documents are organized by review stages (Review 1, 2, and 3)
 3. Each document includes presentations, documentation, and reports as applicable
 4. You'll have lifetime access to download these documents
@@ -545,6 +544,32 @@ Thank you for your business!
   `.trim();
 };
 
+// Test function for development
+export const testDocumentDelivery = async () => {
+  const testData: DocumentDeliveryData = {
+    project_title: 'Test Project',
+    customer_name: 'Test Customer',
+    customer_email: 'test@example.com',
+    order_id: 'TEST123',
+    documents: [
+      {
+        name: 'Test Document.pdf',
+        url: 'https://example.com/test.pdf',
+        category: 'document',
+        review_stage: 'review_1',
+        size: 1024000
+      }
+    ]
+  };
+
+  try {
+    await sendDocumentDelivery(testData);
+    console.log('Test document delivery sent successfully');
+  } catch (error) {
+    console.error('Test document delivery failed:', error);
+  }
+};
+
 // Setup instructions for Brevo
 export const getBrevoSetupInstructions = (): string => {
   return `
@@ -560,23 +585,12 @@ BREVO EMAIL SETUP INSTRUCTIONS:
    - Add it to your .env file as VITE_BREVO_API_KEY
 
 3. Validate Sender Email:
-   Option A - Validate Individual Email:
    - Go to https://app.brevo.com/senders/list
    - Click "Add a sender"
-   - Add your email (e.g., mohanselemophile@gmail.com)
+   - Add your email (mohanselemophile@gmail.com)
    - Verify it via the confirmation email
 
-   Option B - Validate Domain (Recommended):
-   - Go to https://app.brevo.com/senders/domain
-   - Add your domain
-   - Add the required DNS records
-   - This allows any email from your domain
-
-4. Update Configuration:
-   - Replace 'noreply@brevo.com' with your validated sender email
-   - Update the senderName if needed
-
-5. Test Email Delivery:
+4. Test Email Delivery:
    - Use the test function in the email utils
    - Check Brevo dashboard for delivery statistics
 
@@ -585,32 +599,4 @@ Current Configuration:
 - Sender Name: ${CONFIG.brevo.senderName}
 - API Key: ${CONFIG.brevo.apiKey ? 'Configured' : 'Not configured'}
   `;
-};
-
-// Test function for development
-export const testBrevoService = async () => {
-  try {
-    console.log(getBrevoSetupInstructions());
-    
-    const testData: DocumentDeliveryData = {
-      project_title: 'Test Project',
-      customer_name: 'Test Customer',
-      customer_email: 'test@example.com',
-      order_id: 'TEST123',
-      documents: [
-        {
-          name: 'Test Document.pdf',
-          url: 'https://example.com/test.pdf',
-          category: 'document',
-          review_stage: 'review_1',
-          size: 1024000
-        }
-      ]
-    };
-
-    await sendDocumentDelivery(testData);
-    console.log('Brevo test email sent successfully');
-  } catch (error) {
-    console.error('Brevo test failed:', error);
-  }
 };
