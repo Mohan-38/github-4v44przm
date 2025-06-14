@@ -8,7 +8,7 @@ const CONFIG = {
     // You'll need to set this in your environment variables
     apiKey: import.meta.env.VITE_BREVO_API_KEY || '',
     // Use your validated sender email
-    senderEmail: 'mohanselemophile@gmail.com', // Your validated email
+    senderEmail: 'mohanselenophile@gmail.com', // Your validated email
     senderName: 'Tech Creator'
   },
   emailjs: {
@@ -20,7 +20,7 @@ const CONFIG = {
       documentDelivery: 'template_document_delivery' // Add this template
     }
   },
-  developerEmail: 'mohanselemophile@gmail.com'
+  developerEmail: 'mohanselenophile@gmail.com'
 };
 
 // Type Definitions
